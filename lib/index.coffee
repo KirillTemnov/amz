@@ -5,7 +5,7 @@ opts             = require "./opts"
 sys              = require "util"
 aws              = require "aws-lib"
 fs               = require "fs"
-exports.version  = version = "0.0.9a"
+exports.version  = version = "0.1.0"
 
 
 exports.USAGE    = USAGE = """
@@ -18,23 +18,25 @@ exports.USAGE    = USAGE = """
 
   List of commands:
 
-    start        : start new ec2 instance. Accept additional params: ...
+    start         : start new ec2 instance. Accept additional params: ...
 
-    stop         : stop instance
+    stop          : stop instance
 
-    log, l       : show instances statistics
+    log, l        : show instances statistics
 
-    help         : show this message
+    help          : show this message
 
-    history, h   : history of commands
+    history, h    : history of commands
 
-    add-scr, as  : add new user script/ rewrite exiting script
+    clear-history : reset all history commands
 
-    list-scr, ls : show list of user scripts
+    add-scr, as   : add new user script/ rewrite exiting script
 
-    dump-scr, ds : dump script to working directory
+    list-scr, ls  : show list of user scripts
 
-    config, c    : set/unset config vars
+    dump-scr, ds  : dump script to working directory
+
+    config, c     : set/unset config vars
 
 """
 
@@ -63,7 +65,7 @@ printInstansesFromReservationSet = (instances) ->
 Execute command
 
 ###
-exports.execCmd = (cmd, args) ->
+exports.execCmd = (cmd, args, source="") ->
   c = opts.config null                 # todo add path config option here
   unless cmd in ["help", "v", "config", "c", "set", "del"]
     chk = c.checkOpts()
@@ -106,10 +108,9 @@ exports.execCmd = (cmd, args) ->
       if scriptContent
         amzOpts.UserData = new Buffer(scriptContent).toString "base64"
 
-#      return console.log "sun wirh options: #{sys.inspect amzOpts, yes, 10}"
       ec2.call "RunInstances", amzOpts, (result) ->
         console.log "result = #{sys.inspect result, yes, 10}"
-
+        c.addToHistory source
 
     when "stop"
       # try to stop last instance
@@ -144,17 +145,25 @@ exports.execCmd = (cmd, args) ->
         else
           ec2.call "TerminateInstances", params, (result) ->
             console.log "instances shutting down..."
-
+        c.addToHistory source
 
     when "log", "l"
       ec2.call "DescribeInstances", {}, printInstansesFromReservationSet
-
+      c.addToHistory source
     when "help"
       console.log "detail help on command"
-    when "history"
-      console.log "show commands history"
+    when "history", "h"
+      hist = c.getHistory()
+      if 0 is hist.length
+        console.log "empty history"
+      else
+        console.log hist.join "\n"
+    when "clear-history"
+      c.resetHistory()
+      console.log "history cleared"
     when "add-scr", "as"
       c.addScript args.name, args.path
+      c.addToHistory source
     when "list-scr", "ls"
       found = no
       for k, v of c.scripts
@@ -182,6 +191,7 @@ exports.execCmd = (cmd, args) ->
         console.log "script not found. use\namz ls\nto find scripts."
     when "config", "c"
       c.dump()
+      c.addToHistory source
     else
       console.log USAGE
 

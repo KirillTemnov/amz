@@ -28,6 +28,7 @@ class Opts
     @config.awsInstanceType    ||= process.env.AWS_INSTANCE_TYPE || "m1.small"
     @config.awsImageId         ||= process.env.AWS_IMAGE_ID
     @config._amzScriptSettings ||= "#{process.env.HOME}/.amzscripts"
+    @config.history            ||= []
 
   ###
   Check nessesary options and return array of keys, that must be set.
@@ -107,7 +108,7 @@ class Opts
       if "ENOENT" is e.code
         # create new config
         @_setDefaults()
-        fs.writeFileSync @configFile, JSON.stringify @config
+        @save()
       else
         throw e
     @_loadScriptsSettings()
@@ -118,8 +119,30 @@ class Opts
     else
       for k,v of params
         @set k, v
-    fs.writeFileSync @configFile, JSON.stringify @config
+    @save()
 
+
+  ###
+  Add new history entry
+  ###
+  addToHistory: (str) ->
+    prevStr = @config.history[-1..][0]
+    unless prevStr is str
+      @config.history.push str
+    @save()
+
+  ###
+  Remove all history items
+  ###
+  resetHistory: ->
+    @config.history = []
+    @save()
+
+  ###
+  Get copy of history list
+  ###
+  getHistory: ->
+    @config.history[0..-1]
 
   ###
   Set config key
@@ -136,7 +159,7 @@ class Opts
     else
       for k in keysList
         delete @config[k]
-    fs.writeFileSync @configFile, JSON.stringify @config
+    @save()
 
   ###
   Save config state
