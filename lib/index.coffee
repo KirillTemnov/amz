@@ -5,7 +5,7 @@ opts             = require "./opts"
 sys              = require "util"
 aws              = require "aws-lib"
 fs               = require "fs"
-exports.version  = version = "0.1.0"
+exports.version  = version = "0.1.1"
 
 
 exports.USAGE    = USAGE = """
@@ -18,7 +18,19 @@ exports.USAGE    = USAGE = """
 
   List of commands:
 
-    start         : start new ec2 instance. Accept additional params: ...
+    start         : start new ec2 instance. Accept additional params:
+
+      num                    - number of instances to run (default 1)
+
+      --awsAccessKey key     - redefine access key
+
+      --awsSecretKey secret  - redefine secret key
+
+      --awsKeypairName name  - set keypair, instead of default (in config)
+
+      --awsImageId id        - set amazon image id, instead of default (in config)
+
+      --script name          - apply named script after starting mashinge(s)
 
     stop          : stop instance
 
@@ -92,13 +104,16 @@ exports.execCmd = (cmd, args, source="") ->
       iType          = args.instanceType  || c.get "awsInstanceType"
       secGroup       = args.securityGroup || c.get "awsSecurityGroup"
       scriptContent  = c.scripts[args.script]? and c.scripts[args.script].data or null
+      maxCount       = parseInt(args._[0])
+      if isNaN maxCount
+        maxCount = 1
       # todo read script from file
       unless iType in InstanceTypes
         return console.log "instance type must be one of #{InstanceTypes.join ', '}"
 
       amzOpts =
         ImageId           : imgId
-        MaxCount          : 1
+        MaxCount          : maxCount
         MinCount          : 1
         KeyName           : keyName
         InstanceType      : iType
