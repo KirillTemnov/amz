@@ -28,7 +28,7 @@ class Opts
     @config.awsInstanceType    ||= process.env.AWS_INSTANCE_TYPE || "m1.small"
     @config.awsImageId         ||= process.env.AWS_IMAGE_ID
     @config._amzScriptSettings ||= "#{process.env.HOME}/.amzscripts"
-    @config.history            ||= []
+    @config._history            ||= []
 
   ###
   Check nessesary options and return array of keys, that must be set.
@@ -55,7 +55,7 @@ class Opts
       @scripts = JSON.parse fs.readFileSync @config._amzScriptSettings
       # data is an object, consists of key and value
     catch e
-      if "ENOENT" is e.code
+      if e.code in ["EBADF", "ENOENT"]
         # create new
         @scripts = {}
         @storeScriptSettings()
@@ -100,12 +100,15 @@ class Opts
     @storeScriptSettings()
     console.log "#{@scripts[name].type} script #{name} (#{(content.length/1024).toFixed 2}) #{what} successfull"
 
+  ###
+  Load config file and scripts file
+  ###
   load: ->
     try
       @config = JSON.parse fs.readFileSync @configFile
       @_setDefaults()
     catch e
-      if "ENOENT" is e.code
+      if e.code in ["EBADF", "ENOENT"]
         # create new config
         @_setDefaults()
         @save()
@@ -113,6 +116,9 @@ class Opts
         throw e
     @_loadScriptsSettings()
 
+  ###
+  Update config params
+  ###
   update: (params={}, value=null) ->
     if "string" is typeof params
       @set params, value
@@ -121,28 +127,27 @@ class Opts
         @set k, v
     @save()
 
-
   ###
   Add new history entry
   ###
   addToHistory: (str) ->
-    prevStr = @config.history[-1..][0]
+    prevStr = @config._history[-1..][0]
     unless prevStr is str
-      @config.history.push str
+      @config._history.push str
     @save()
 
   ###
   Remove all history items
   ###
   resetHistory: ->
-    @config.history = []
+    @config._history = []
     @save()
 
   ###
   Get copy of history list
   ###
   getHistory: ->
-    @config.history[0..-1]
+    @config._history[0..-1]
 
   ###
   Set config key

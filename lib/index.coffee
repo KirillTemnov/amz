@@ -5,7 +5,7 @@ opts             = require "./opts"
 sys              = require "util"
 aws              = require "aws-lib"
 fs               = require "fs"
-exports.version  = version = "0.1.1"
+exports.version  = version = "0.1.2"
 
 
 exports.USAGE    = USAGE = """
@@ -19,17 +19,11 @@ exports.USAGE    = USAGE = """
   List of commands:
 
     start         : start new ec2 instance. Accept additional params:
-
       num                    - number of instances to run (default 1)
-
       --awsAccessKey key     - redefine access key
-
       --awsSecretKey secret  - redefine secret key
-
       --awsKeypairName name  - set keypair, instead of default (in config)
-
       --awsImageId id        - set amazon image id, instead of default (in config)
-
       --script name          - apply named script after starting mashinge(s)
 
     stop          : stop instance
@@ -42,11 +36,16 @@ exports.USAGE    = USAGE = """
 
     clear-history : reset all history commands
 
-    add-scr, as   : add new user script/ rewrite exiting script
+    add-script, as   : add new user script/ rewrite exiting script
+      --name  script-name    - name of script to dump
+      --path  path/to/script
 
-    list-scr, ls  : show list of user scripts
 
-    dump-scr, ds  : dump script to working directory
+    list-scripts, ls  : show list of user scripts
+
+    dump-script, ds  : dump script to working directory
+      --name script-name  - name of script to dump
+      --to file           - filename to dump, default equals to script-name
 
     config, c     : set/unset config vars
 
@@ -78,16 +77,17 @@ Execute command
 
 ###
 exports.execCmd = (cmd, args, source="") ->
+  if args.v or args.version
+    return console.log "version: #{version}"
+
   c = opts.config null                 # todo add path config option here
-  unless cmd in ["help", "v", "config", "c", "set", "del"]
+  unless cmd in ["help", "config", "c", "set", "del"]
     chk = c.checkOpts()
     if chk.length > 0
       return console.log "check error. missed options: #{chk.join ', '}"
     ec2 = aws.createEC2Client c.get("awsAccessKey"), c.get("awsSecretKey")
 
   switch cmd
-    when "v"
-      console.log "version: #{version}"
     when "set"
       for k,v of args
         if k in ["_", "$0"]
@@ -166,7 +166,7 @@ exports.execCmd = (cmd, args, source="") ->
       ec2.call "DescribeInstances", {}, printInstansesFromReservationSet
       c.addToHistory source
     when "help"
-      console.log "detail help on command"
+      console.log USAGE
     when "history", "h"
       hist = c.getHistory()
       if 0 is hist.length
@@ -176,10 +176,10 @@ exports.execCmd = (cmd, args, source="") ->
     when "clear-history"
       c.resetHistory()
       console.log "history cleared"
-    when "add-scr", "as"
+    when "add-scr", "add-script", "as"
       c.addScript args.name, args.path
       c.addToHistory source
-    when "list-scr", "ls"
+    when "list-scr", "list-scripts", "ls"
       found = no
       for k, v of c.scripts
         found = yes
