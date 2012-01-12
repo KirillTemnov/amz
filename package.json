@@ -1,13 +1,14 @@
 {
  "name": "amz",
  "preferGlobal": "true",
- "version": "0.1.2",
+ "version": "0.2.0",
  "description": "Amazon EC2 cli on coffee-script",
  "keywords": ["amazon", "ec2", "cli"],
  "author": "Temnov Kirill, @selead",
  "dependencies": {
      "aws-lib": "0.0.x",
      "coffee-script": ">=1.0.1",
+     "colors" : ">= 0.5.x",
      "optimist": ">= 0.3.x"
   },
  "bin": { "amz": "./bin/amz.coffee" },

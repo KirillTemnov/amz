@@ -5,8 +5,9 @@ opts             = require "./opts"
 sys              = require "util"
 aws              = require "aws-lib"
 fs               = require "fs"
-exports.version  = version = "0.1.2"
+exports.version  = version = "0.2.0"
 
+require "colors"
 
 exports.USAGE    = USAGE = """
   amz - amazon EC2 instances deployer.
@@ -14,62 +15,91 @@ exports.USAGE    = USAGE = """
   amz [cmd] [options]
 
   Options:
-    -v, --version : show amz version
+    -v, --version                  : show amz version
 
   List of commands:
 
-    start         : start new ec2 instance. Accept additional params:
+    start                          : start new ec2 instance. Accept additional params:
       num                    - number of instances to run (default 1)
       --awsAccessKey key     - redefine access key
       --awsSecretKey secret  - redefine secret key
       --awsKeypairName name  - set keypair, instead of default (in config)
       --awsImageId id        - set amazon image id, instead of default (in config)
-      --script name          - apply named script after starting mashinge(s)
+      --script scriptName    - apply named script after starting mashinge(s)
+      --name   machineName   - create named machine
 
-    stop          : stop instance
+    stop                           : stop instance. No parameters - stop all regular instances
+                                     if machineName(s) is set via --name, only named machines
+                                     will be shutting down. Shortcuts ^0 - ^9,  ^a-^z also
+                                     availabile
+      --name  machineName    - stop all machines with custom name
 
-    log, l        : show instances statistics
+    list-ip                        : show list of IP adresses
 
-    help          : show this message
+    bind-ip                        : bind ip to instance, `ip` and `iid` are required
 
-    history, h    : history of commands
+      --ip  ipAddress        - reserved ip address
+      --iid instanceId       - instance id
 
-    clear-history : reset all history commands
+    log, l                         : show instances statistics
 
-    add-script, as   : add new user script/ rewrite exiting script
-      --name  script-name    - name of script to dump
+    help                           : show this message
+
+    history, h                     : history of commands
+
+    clear-history                  : reset all history commands
+
+    add-script, as                 : add new user script/ rewrite exiting script
+      --script script-name    - name of script to dump
       --path  path/to/script
 
+    list-scripts, ls               : show list of user scripts
 
-    list-scripts, ls  : show list of user scripts
+    dump-script, ds                : dump script to working directory
+      --script script-name    - name of script to dump
+      --to file               - filename to dump, default equals to script-name
 
-    dump-script, ds  : dump script to working directory
-      --name script-name  - name of script to dump
-      --to file           - filename to dump, default equals to script-name
+    config, c                      : list of config vars
 
-    config, c     : set/unset config vars
+    config set --confKey confValue : set config variable(s)
+
+    config reset confKey           : remove config variable(s)
 
 """
 
 shortcuts = "0123456789abcdefghijklmnopqrstuvwxyz"
 InstanceTypes = "m1.small|m1.large|m1.xlarge|c1.medium|c1.xlarge|m2.xlarge|m2.2xlarge|m2.4xlarge|t1.micro".split "|"
 
-printInstansesFromReservationSet = (instances) ->
+printInstansesFromReservationSet = (instances, config) ->
   rsItems = instances.reservationSet.item || []
   unless rsItems instanceof Array
     rsItems = [rsItems]
 
   found = no
   for it, j in rsItems
-    found = yes
-    i = it.instancesSet.item
-    sc = shortcuts[j]? and "^#{shortcuts[j]}" or "  "
-    out = "#{sc} #{i.instanceState.name} \t #{i.instanceId}\t#{i.instanceType} / #{i.architecture}\t(#{i.placement.availabilityZone})\t"
-    if i.ipAddress
-      out += "#{i.ipAddress} / #{i.dnsName}"
-    console.log out
+    found        = yes
+    itemsList    = it.instancesSet.item
+    unless itemsList instanceof Array
+      itemsList  = [itemsList]
+
+    for i in itemsList
+      sc       = shortcuts[j]? and "^#{shortcuts[j]}".bold.green or "  "
+      iname    = config.getInstanceName i.instanceId
+      out      = "#{sc} #{iname? and iname.magenta or '\t'}\t "
+      restStr  = "#{i.instanceState.name} \t #{i.instanceId}\t#{i.instanceType} / #{i.architecture}\t(#{i.placement.availabilityZone})\t"
+      if i.ipAddress
+        restStr += "#{i.ipAddress} / #{i.dnsName}"
+
+      if i.instanceState.name in ["shutting-down", "pending"]
+        restStr = restStr.yellow
+      else if i.instanceState.name is "terminated"
+        restStr = restStr.grey
+
+
+      console.log out + restStr
 
   unless found
+    config.removeAllInstanses()
     console.log "[No active machines running]"
 
 ###
@@ -81,23 +111,13 @@ exports.execCmd = (cmd, args, source="") ->
     return console.log "version: #{version}"
 
   c = opts.config null                 # todo add path config option here
-  unless cmd in ["help", "config", "c", "set", "del"]
+  unless cmd in ["help", "config", "c"]
     chk = c.checkOpts()
     if chk.length > 0
       return console.log "check error. missed options: #{chk.join ', '}"
     ec2 = aws.createEC2Client c.get("awsAccessKey"), c.get("awsSecretKey")
 
   switch cmd
-    when "set"
-      for k,v of args
-        if k in ["_", "$0"]
-          continue
-        c.set k, v
-      c.save()
-
-    when "del"
-      c.remove args._
-
     when "start"
       imgId          = args.imageId       || c.get "awsImageId"
       keyName        = args.keyName       || c.get "awsKeypairName"
@@ -105,9 +125,10 @@ exports.execCmd = (cmd, args, source="") ->
       secGroup       = args.securityGroup || c.get "awsSecurityGroup"
       scriptContent  = c.scripts[args.script]? and c.scripts[args.script].data or null
       maxCount       = parseInt(args._[0])
+      name           = args.name || null
       if isNaN maxCount
         maxCount = 1
-      # todo read script from file
+
       unless iType in InstanceTypes
         return console.log "instance type must be one of #{InstanceTypes.join ', '}"
 
@@ -124,11 +145,16 @@ exports.execCmd = (cmd, args, source="") ->
         amzOpts.UserData = new Buffer(scriptContent).toString "base64"
 
       ec2.call "RunInstances", amzOpts, (result) ->
-        console.log "result = #{sys.inspect result, yes, 10}"
+        if name
+          iid = result.instancesSet.item.instanceId
+          c.addNamedInstance name, iid
+        itemsList = result.instancesSet.item
+        unless itemsList instanceof Array
+          itemsList = [itemsList]
+        console.log "#{itemsList.length} instance#{itemsList.length > 1 and 's' or ''} started".bold.green
         c.addToHistory source
 
     when "stop"
-      # try to stop last instance
       ec2.call "DescribeInstances", {}, (inst) ->
         rsItems = inst.reservationSet.item || []
         unless rsItems instanceof Array
@@ -136,25 +162,43 @@ exports.execCmd = (cmd, args, source="") ->
 
         runningIds = []
         for it, j in rsItems
-          i = it.instancesSet.item
-          if i.instanceState.name in ["running", "pending"]
-            runningIds.push [i.instanceId, shortcuts[j]? and "^#{shortcuts[j]}" or "empty-value"]
+          itemsList = it.instancesSet.item
+          unless itemsList instanceof Array
+            itemsList = [itemsList]
+          for i in itemsList
+            if i.instanceState.name in ["running", "pending"]
+              runningIds.push [i.instanceId, shortcuts[j]? and "^#{shortcuts[j]}" or "empty-value"]
 
         params = {}
         found = no
 
-        if 0 is args._.length   # stop all instances
-          for i, j in runningIds
-            found = yes
-            params["InstanceId.#{j+1}"] = i[0]
+        if args.name
+          name  = (args.name instanceof Array) and args.name or [args.name]
+          j     = 0
+          for i in runningIds
+            if c.getInstanceName(i[0]) in name
+              params["InstanceId.#{j+1}"] = i[0]
+              found = yes
+              j++
+
+        else if 0 is args._.length   # stop all instances
+          j = 0
+          for i in runningIds
+            unless c.getInstanceName i[0]
+              found = yes
+              params["InstanceId.#{j+1}"] = i[0]
+            else
+              j++
+
         else                    # search for instances
           j = 0
           args._.map (arg) ->
             for i in runningIds
               if arg in i
                 params["InstanceId.#{j+1}"] = i[0]
-                j++
                 found = yes
+                j++
+
         unless found
           console.log "all instances not active or terminated"
         else
@@ -163,10 +207,34 @@ exports.execCmd = (cmd, args, source="") ->
         c.addToHistory source
 
     when "log", "l"
-      ec2.call "DescribeInstances", {}, printInstansesFromReservationSet
+      ec2.call "DescribeInstances", {}, (instances) ->
+        printInstansesFromReservationSet instances, c
       c.addToHistory source
+
     when "help"
       console.log USAGE
+
+    when "list-ip"
+      ec2.call "DescribeAddresses", {}, (addresses) ->
+        itemsList = addresses.addressesSet.item
+        unless itemsList instanceof Array
+          itemsList = [itemsList]
+        for i in itemsList
+          s = "#{i.publicIp}\t\t#{('string' is typeof i.instanceId) and i.instanceId or '[none]'}"
+          unless "string" is typeof i.instanceId
+            s = s.grey
+          else
+            s = s.green.bold
+          console.log s
+
+    when "bind-ip"
+      ec2.call "AssociateAddress", {PublicIp: args.ip, InstanceId: args.iid}, (result) ->
+        if result.return
+          console.log "done".bold.green
+        else
+          console.log result.Errors.Error.Message.red
+
+
     when "history", "h"
       hist = c.getHistory()
       if 0 is hist.length
@@ -177,7 +245,7 @@ exports.execCmd = (cmd, args, source="") ->
       c.resetHistory()
       console.log "history cleared"
     when "add-scr", "add-script", "as"
-      c.addScript args.name, args.path
+      c.addScript args.script, args.path
       c.addToHistory source
     when "list-scr", "list-scripts", "ls"
       found = no
@@ -198,15 +266,25 @@ exports.execCmd = (cmd, args, source="") ->
         c.storeScriptSettings()
 
     when "dump-scr", "ds"
-      if c.scripts[args.name]
-        filename = args.to || args.name
-        fs.writeFileSync filename, c.scripts[args.name].data
+      if c.scripts[args.script]
+        filename = args.to || args.script
+        fs.writeFileSync filename, c.scripts[args.script].data
         console.log "dump to #{filename} finished"
       else
         console.log "script not found. use\namz ls\nto find scripts."
     when "config", "c"
-      c.dump()
-      c.addToHistory source
+      aux_cmd = args._.shift()
+      if aux_cmd is "set"
+        for k,v of args
+          if k in ["_", "$0"]
+            continue
+          c.set k, v
+        c.save()
+      else if aux_cmd is "reset"
+        c.remove args._
+      else
+        c.dump()
+        c.addToHistory source
     else
       console.log USAGE
 

@@ -28,7 +28,40 @@ class Opts
     @config.awsInstanceType    ||= process.env.AWS_INSTANCE_TYPE || "m1.small"
     @config.awsImageId         ||= process.env.AWS_IMAGE_ID
     @config._amzScriptSettings ||= "#{process.env.HOME}/.amzscripts"
-    @config._history            ||= []
+    @config._history           ||= []
+    @config._mashineNames      ||= {}
+
+  ###
+  Add named instance
+  ###
+  addNamedInstance: (name, instanceId) ->
+    unless @config._mashineNames[name]
+      @config._mashineNames[name] = [instanceId]
+    else
+      @config._mashineNames[name].push instanceId
+    @save()
+
+  # removeNamedInstance: (name, instanceId) ->
+  #   #foobar
+  #   @save()
+
+
+  # removeAllInstansesForName: (name) ->
+  #   delete @config._mashineNames[name]
+  #   @save()
+
+  removeAllInstanses: ->
+    @config._mashineNames = {}
+    @save()
+
+  ###
+  Get instance name by in (or null)
+  ###
+  getInstanceName: (instanceId) ->
+    for name, instList of @config._mashineNames
+      if instanceId in instList
+        return name
+    return null
 
   ###
   Check nessesary options and return array of keys, that must be set.
