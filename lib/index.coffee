@@ -5,7 +5,7 @@ opts             = require "./opts"
 sys              = require "util"
 aws              = require "aws-lib"
 fs               = require "fs"
-exports.version  = version = "0.2.0"
+exports.version  = version = "0.2.1"
 
 require "colors"
 
@@ -21,10 +21,11 @@ exports.USAGE    = USAGE = """
 
     start                          : start new ec2 instance. Accept additional params:
       num                    - number of instances to run (default 1)
-      --awsAccessKey key     - redefine access key
-      --awsSecretKey secret  - redefine secret key
-      --awsKeypairName name  - set keypair, instead of default (in config)
-      --awsImageId id        - set amazon image id, instead of default (in config)
+      --imageId i-id         - image id, instead of default in config
+      --instanceType  iType  - instance type, instead of default in config, one of
+                                m1.small, m1.large, m1.xlarge, c1.medium, c1.xlarge,
+                                m2.xlarge, m2.2xlarge, m2.4xlarge, t1.micro
+      --securityGroup sgName - name of security group, instead of default in config
       --script scriptName    - apply named script after starting mashinge(s)
       --name   machineName   - create named machine
 
@@ -120,7 +121,7 @@ exports.execCmd = (cmd, args, source="") ->
   switch cmd
     when "start"
       imgId          = args.imageId       || c.get "awsImageId"
-      keyName        = args.keyName       || c.get "awsKeypairName"
+      keyName        = args.keypairName   || c.get "awsKeypairName"
       iType          = args.instanceType  || c.get "awsInstanceType"
       secGroup       = args.securityGroup || c.get "awsSecurityGroup"
       scriptContent  = c.scripts[args.script]? and c.scripts[args.script].data or null
