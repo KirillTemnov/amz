@@ -5,7 +5,7 @@ opts             = require "./opts"
 sys              = require "util"
 aws              = require "aws-lib"
 fs               = require "fs"
-exports.version  = version = "0.2.1"
+exports.version  = version = "0.3.0"
 
 require "colors"
 
@@ -28,6 +28,7 @@ exports.USAGE    = USAGE = """
       --securityGroup sgName - name of security group, instead of default in config
       --script scriptName    - apply named script after starting mashinge(s)
       --name   machineName   - create named machine
+      --zone   zoneName      - availability zone,  us-east-1a, us-east-1b, us-east-1c ...
 
     stop                           : stop instance. No parameters - stop all regular instances
                                      if machineName(s) is set via --name, only named machines
@@ -59,6 +60,12 @@ exports.USAGE    = USAGE = """
     dump-script, ds                : dump script to working directory
       --script script-name    - name of script to dump
       --to file               - filename to dump, default equals to script-name
+
+
+    zones, z                       : show availability zones
+      --region Region name    - name of region, multiple keys applied
+
+    regions, r                     : show amazon regions
 
     config, c                      : list of config vars
 
@@ -124,6 +131,7 @@ exports.execCmd = (cmd, args, source="") ->
       keyName        = args.keypairName   || c.get "awsKeypairName"
       iType          = args.instanceType  || c.get "awsInstanceType"
       secGroup       = args.securityGroup || c.get "awsSecurityGroup"
+      zone           = args.zone          || null
       scriptContent  = c.scripts[args.script]? and c.scripts[args.script].data or null
       maxCount       = parseInt(args._[0])
       name           = args.name || null
@@ -141,7 +149,11 @@ exports.execCmd = (cmd, args, source="") ->
         InstanceType      : iType
         "SecurityGroup.1" : secGroup
 
+      if zone
+        amzOpts["Placement.AvailabilityZone"] = zone
 
+      if scriptContent && scriptContent.length > 16 * 1024
+        return console.log "Script '[args.script]' more than 16kb, mashine wouldn't started!"
       if scriptContent
         amzOpts.UserData = new Buffer(scriptContent).toString "base64"
 
@@ -273,6 +285,36 @@ exports.execCmd = (cmd, args, source="") ->
         console.log "dump to #{filename} finished"
       else
         console.log "script not found. use\namz ls\nto find scripts."
+    when "zones", "z"
+      c.addToHistory source
+      opts = {}
+      args.region ||= []
+      regions  = (args.region instanceof Array) and args.region or [args.region]
+      for r, i in regions
+        opts["ZoneName.#{i}"] = r
+
+      ec2.call "DescribeAvailabilityZones", opts, (result) ->
+        if result?.availabilityZoneInfo?.item?
+          zInfo = []
+          for x in result.availabilityZoneInfo.item
+            if x.zoneState is "available"
+              zInfo.push "#{x.zoneName}\t\t#{x.regionName}".green
+            else
+              zInfo.push "#{x.zoneName}\t\t#{x.regionName}".grey
+          console.log "ZoneName\t\t\tRegion name\n#{zInfo.join '\n'}"
+        else
+          console.log "can't get zones info!".bold
+          console.log "result = #{JSON.stringify result, null, 2}"
+
+    when "regions", "r"
+      c.addToHistory source
+      ec2.call "DescribeRegions", {}, (result) ->
+        if result?.regionInfo?.item?
+          regInfo = ("#{x.regionName.green.bold}\t\t#{x.regionEndpoint}" for x in result.regionInfo.item)
+          console.log "Region\t\t\tEnd point\n#{regInfo.join '\n'}"
+        else
+          console.log "can't get regions info!".bold
+
     when "config", "c"
       aux_cmd = args._.shift()
       if aux_cmd is "set"
