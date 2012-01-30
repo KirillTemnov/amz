@@ -69,6 +69,23 @@ exports.USAGE    = USAGE = """
 
     volumes                        : show volumes
 
+    create-volume                  : create new volume
+      --zone zoneName       - name of zone, required!
+      --size Sz             - volume size in GB, default - 1
+      --snapId snapsotId    - specify if required create volume from snapshot
+
+    delete-volume                  : delete volume
+      --id VolumeId         - id of volume for deleting, started from 'vol-...'
+
+    attach-volume                  : attach volume to instance
+      --instanceId id       - id of instance
+      --volumeId            - id of volume
+      --deviceId            - id of device
+
+    detach-volume                  : detach volume from instance
+
+    describe-tags                  : describe all tags, used for debug
+
     config, c                      : list of config vars
 
     config set --confKey confValue : set config variable(s)
@@ -79,6 +96,18 @@ exports.USAGE    = USAGE = """
 
 shortcuts = "0123456789abcdefghijklmnopqrstuvwxyz"
 InstanceTypes = "m1.small|m1.large|m1.xlarge|c1.medium|c1.xlarge|m2.xlarge|m2.2xlarge|m2.4xlarge|t1.micro".split "|"
+
+fetchTags = (fn) ->
+  c = opts.config null                 # todo add path config option here
+  ec2t = aws.createEC2Client c.get("awsAccessKey"), c.get("awsSecretKey"), {version: "2011-12-01"}
+  ec2t.call "DescribeTags", {}, (result) ->
+    itemTags = result?.tagSet?.item? and result.tagSet.item or []
+    itemTags = itemTags instanceof Array and itemTags or [itemTags]
+    tags = {}
+    for it in itemTags
+      tags[it.resourceId] || ={}
+      tags[it.resourceId][it.key] = [it.value]
+    fn tags
 
 printInstansesFromReservationSet = (instances, config) ->
   rsItems = instances.reservationSet.item || []
@@ -125,7 +154,7 @@ exports.execCmd = (cmd, args, source="") ->
     chk = c.checkOpts()
     if chk.length > 0
       return console.log "check error. missed options: #{chk.join ', '}"
-    ec2 = aws.createEC2Client c.get("awsAccessKey"), c.get("awsSecretKey")
+    ec2 = aws.createEC2Client c.get("awsAccessKey"), c.get("awsSecretKey"), {version: "2011-12-01"}
 
   switch cmd
     when "start"
@@ -310,6 +339,7 @@ exports.execCmd = (cmd, args, source="") ->
 
     when "volumes"
       c.addToHistory source
+#      fetchTags (tags) ->
       ec2.call "DescribeVolumes", {}, (result) ->
         if result?.volumeSet?.item?
           vInfo = []
@@ -317,19 +347,85 @@ exports.execCmd = (cmd, args, source="") ->
             switch v.status
               when "in-use"
                 st = "in-use".red
-              when "avalible"
-                st = "avalible".green
+              when "available"
+                st = "available".green
               else
                 st = v.status.yellow
             s = "#{v.volumeId}\t\t#{v.size}Gb\t#{'string' is typeof v.snapshotId and v.snapshotId or '[no snapshot]'}\t#{v.availabilityZone}\t#{st}\t"
             if v.attachmentSet?.item?
               item = v.attachmentSet.item
               s += "[ -> #{item.instanceId}]".bold.green + "\t#{item.device}\t#{item.status}\t[ #{'true' is item.deleteOnTermination and 'temp' or 'permanant'} ]"
+            if v.tagSet?.item?
+              for ti in v.tagSet.item instanceof Array and v.tagSet.item or [v.tagSet.item]
+                if ti.key is "Name"
+                  s += "\n[ #{ti.value.blue} ]"
+                  break
             vInfo.push s
           console.log "#{vInfo.join '\n'}"
         else
           console.log "error getting volumes!".bold
           console.log "#{JSON.stringify result, null, 2}"
+
+    when "create-volume"
+      unless args.zone
+        return console.log "error, zone argument required"
+
+      c.addToHistory source
+      opts =
+        Size: args.size || 1
+        AvailabilityZone: args.zone || "us-east-1a" # or default zone
+
+      opts.SnapshotId = args.snapId if args.snapId
+      ec2.call "CreateVolume", opts, (result) ->
+        if result?.Errors?.Error?.Message?
+          console.log result.Errors.Error.Message
+        else
+          if args.name? and result.volumeId
+            o2 = {"ResourceId.0": result.volumeId, "Tag.0.Key": "Name", "Tag.0.Value": args.name}
+            ec2.call "CreateTags", o2, (reslt) ->
+              if reslt?.Errors?.Error?.Message?
+                console.log "error creating tag for volume (volume should still created)"
+              else
+                console.log "create new volume with id: #{result.volumeId}"
+          else
+            console.log "create new volume with id: #{result.volumeId}"
+
+
+    when "delete-volume"
+      unless args.id
+        return console.log "error, id argument required"
+      ids = args.id instanceof Array and args.id or [args.id]
+      ids.map (id) ->
+        ec2.call "DeleteVolume", {VolumeId: id}, (result) ->
+          if result.return
+            console.log "volume #{id} deleted"
+          else
+            console.log "#{JSON.stringify result, null, 2}"
+
+    when "attach-volume"
+      unless args.instanceId and args.volumeId and args.deviceId
+        return console.log "error, required options: --instanceId, --volumeId and --deviceId"
+      volumes = args.volumeId instanceof Array and args.volumeId or [args.volumeId]
+      devices = args.deviceId instanceof Array and args.deviceId or [args.deviceId]
+      unless volumes.length is devices.length
+        return console.log "volumes and devices must be same quantity"
+      optsArray = []
+      for i in [0...volumes.length]
+        optsArray.push {VolumeId: volumes[i], InstanceId: args.instanceId, Device: devices[i]}
+      optsArray.map (opts) ->
+        ec2.call "AttachVolume", opts, (result) ->
+          if result?.Errors?.Error?.Message?
+            console.log "error attaching volume #{opts.Device}"
+            console.log "#{JSON.stringify result}"
+          else
+            console.log "#{opts.Device} attached"
+
+
+
+
+    when "describe-tags"
+      ec2.call "DescribeTags", {}, (result) ->
+        console.log "#{JSON.stringify result, null, 2}"
 
     when "regions", "r"
       c.addToHistory source
