@@ -67,6 +67,8 @@ exports.USAGE    = USAGE = """
 
     regions, r                     : show amazon regions
 
+    volumes                        : show volumes
+
     config, c                      : list of config vars
 
     config set --confKey confValue : set config variable(s)
@@ -305,6 +307,29 @@ exports.execCmd = (cmd, args, source="") ->
         else
           console.log "can't get zones info!".bold
           console.log "result = #{JSON.stringify result, null, 2}"
+
+    when "volumes"
+      c.addToHistory source
+      ec2.call "DescribeVolumes", {}, (result) ->
+        if result?.volumeSet?.item?
+          vInfo = []
+          for v in result.volumeSet.item
+            switch v.status
+              when "in-use"
+                st = "in-use".red
+              when "avalible"
+                st = "avalible".green
+              else
+                st = v.status.yellow
+            s = "#{v.volumeId}\t\t#{v.size}Gb\t#{'string' is typeof v.snapshotId and v.snapshotId or '[no snapshot]'}\t#{v.availabilityZone}\t#{st}\t"
+            if v.attachmentSet?.item?
+              item = v.attachmentSet.item
+              s += "[ -> #{item.instanceId}]".bold.green + "\t#{item.device}\t#{item.status}\t[ #{'true' is item.deleteOnTermination and 'temp' or 'permanant'} ]"
+            vInfo.push s
+          console.log "#{vInfo.join '\n'}"
+        else
+          console.log "error getting volumes!".bold
+          console.log "#{JSON.stringify result, null, 2}"
 
     when "regions", "r"
       c.addToHistory source
