@@ -5,7 +5,7 @@ opts             = require "./opts"
 sys              = require "util"
 aws              = require "aws-lib"
 fs               = require "fs"
-exports.version  = version = "0.3.0"
+exports.version  = version = "0.4.0"
 
 require "colors"
 
@@ -83,6 +83,15 @@ exports.USAGE    = USAGE = """
       --deviceId            - id of device
 
     detach-volume                  : detach volume from instance
+      --volumeId            - id of volume
+
+    delete-snapshot, rm-snap       : delete snapshot
+      --snapId              - id of snapshot
+
+    snapshot-volume, mk-snap       : snapshot volume
+      --volumeId            - id of volume
+
+    shapshots, snaps               : shpw snapshots
 
     describe-tags                  : describe all tags, used for debug
 
@@ -371,11 +380,11 @@ exports.execCmd = (cmd, args, source="") ->
         return console.log "error, zone argument required"
 
       c.addToHistory source
-      opts =
-        Size: args.size || 1
-        AvailabilityZone: args.zone || "us-east-1a" # or default zone
+      opts             = AvailabilityZone: args.zone || "us-east-1a" # or default zone
+      opts.SnapshotId  = args.snapId if args.snapId
+      opts.Size        = args.size || 1 unless opts.SnapshotId
 
-      opts.SnapshotId = args.snapId if args.snapId
+
       ec2.call "CreateVolume", opts, (result) ->
         if result?.Errors?.Error?.Message?
           console.log result.Errors.Error.Message
@@ -402,6 +411,45 @@ exports.execCmd = (cmd, args, source="") ->
           else
             console.log "#{JSON.stringify result, null, 2}"
 
+    when "snapshots", "snaps"
+      opts = {}
+      if args.owner
+        opts["Owner.0"] = args.owner
+      if args.volumeId
+        opts["Filter.0.Name"] = "volume-id"
+        opts["Filter.0.Value.0"] = args.volumeId
+
+
+      ec2.call "DescribeSnapshots", opts, (result) ->
+        console.log "#{JSON.stringify result, null, 2}"
+
+    when "delete-snapshot", "rm-snap"
+      unless args.snapId
+        return console.log "error, required option --snapId"
+      snaps = args.snapId instanceof Array and args.snapId or [args.snapId]
+      snaps.map (snap) ->
+        ec2.call "DeleteSnapshot", {SnapshotId: snap}, (result) ->
+          if result.return s "true"
+            console.log "snap #{snap} deleted"
+          else
+            console.log "error deleting snap"
+            #console.log "#{JSON.stringify result, null, 2}"
+
+#    when "snap-progress"
+
+    when "snapshot-volume", "mk-snap"
+      unless args.volumeId
+        return console.log "error, parameter volumeId missed"
+
+      c.addToHistory source
+      ec2.call "CreateSnapshot", {VolumeId: args.volumeId}, (result) ->
+        if result?.Errors?.Error?.Message?
+          console.log "error: #{result.Errors.Error.Message}"
+        else
+#progress
+          ec2.call "DescribeSnapshots", {"Filter.0.Name": "volume-id", "Filter.0.Value.0": args.volumeId}, (result) ->
+            console.log "snap = #{JSON.stringify result, null, 2}"
+
     when "attach-volume"
       unless args.instanceId and args.volumeId and args.deviceId
         return console.log "error, required options: --instanceId, --volumeId and --deviceId"
@@ -409,6 +457,7 @@ exports.execCmd = (cmd, args, source="") ->
       devices = args.deviceId instanceof Array and args.deviceId or [args.deviceId]
       unless volumes.length is devices.length
         return console.log "volumes and devices must be same quantity"
+      c.addToHistory source
       optsArray = []
       for i in [0...volumes.length]
         optsArray.push {VolumeId: volumes[i], InstanceId: args.instanceId, Device: devices[i]}
@@ -420,7 +469,17 @@ exports.execCmd = (cmd, args, source="") ->
           else
             console.log "#{opts.Device} attached"
 
-
+    when "detach-volume"
+      unless args.volumeId
+        return console.log "error, volumeId required"
+      volumes = args.volumeId instanceof Array and args.volumeId or [args.volumeId]
+      volumes.map (vol) ->
+        ec2.call "DetachVolume", {VolumeId: vol}, (result) ->
+          if result?.Errors?.Error?.Message?
+            console.log "error attaching volume #{opts.Device}"
+            console.log "#{JSON.stringify result}"
+          else
+            console.log "Volume #{vol} detached"
 
 
     when "describe-tags"
