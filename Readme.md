@@ -1,3 +1,4 @@
+[![build status](https://secure.travis-ci.org/selead/amz.png)](http://travis-ci.org/selead/amz)
 # amz - консоль управления виртуальными машинами amazon ec2
 
 ## Установка
