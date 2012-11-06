@@ -5,7 +5,7 @@ opts             = require "./opts"
 sys              = require "util"
 aws              = require "aws-lib"
 fs               = require "fs"
-exports.version  = version = "0.4.0"
+exports.version  = version = "0.4.3"
 
 require "colors"
 
@@ -101,6 +101,10 @@ exports.USAGE    = USAGE = """
 
     config reset confKey           : remove config variable(s)
 
+    --addToHistory                 : add commad to history
+
+    --vc                           : use virtual config
+
 """
 
 shortcuts = "0123456789abcdefghijklmnopqrstuvwxyz"
@@ -123,32 +127,35 @@ printInstansesFromReservationSet = (instances, config) ->
   unless rsItems instanceof Array
     rsItems = [rsItems]
 
-  found = no
-  for it, j in rsItems
-    found        = yes
-    itemsList    = it.instancesSet.item
-    unless itemsList instanceof Array
-      itemsList  = [itemsList]
+  if config.get "json"
+    console.log JSON.stringify rsItems, null, 2
+  else
+    found = no
+    for it, j in rsItems
+      found        = yes
+      itemsList    = it.instancesSet.item
+      unless itemsList instanceof Array
+        itemsList  = [itemsList]
 
-    for i in itemsList
-      sc       = shortcuts[j]? and "^#{shortcuts[j]}".bold.green or "  "
-      iname    = config.getInstanceName i.instanceId
-      out      = "#{sc} #{iname? and iname.magenta or '\t'}\t "
-      restStr  = "#{i.instanceState.name} \t #{i.instanceId}\t#{i.instanceType} / #{i.architecture}\t(#{i.placement.availabilityZone})\t"
-      if i.ipAddress
-        restStr += "#{i.ipAddress} / #{i.dnsName}"
+      for i in itemsList
+        sc       = shortcuts[j]? and "^#{shortcuts[j]}".bold.green or "  "
+        iname    = config.getInstanceName i.instanceId
+        out      = "#{sc} #{iname? and iname.magenta or '\t'}\t "
+        restStr  = "#{i.instanceState.name} \t #{i.instanceId}\t#{i.instanceType} / #{i.architecture}\t(#{i.placement.availabilityZone})\t"
+        if i.ipAddress
+          restStr += "#{i.ipAddress} / #{i.dnsName}"
 
-      if i.instanceState.name in ["shutting-down", "pending"]
-        restStr = restStr.yellow
-      else if i.instanceState.name is "terminated"
-        restStr = restStr.grey
+        if i.instanceState.name in ["shutting-down", "pending"]
+          restStr = restStr.yellow
+        else if i.instanceState.name is "terminated"
+          restStr = restStr.grey
 
 
-      console.log out + restStr
+        console.log out + restStr
 
-  unless found
-    config.removeAllInstanses()
-    console.log "[No active machines running]"
+    unless found
+      config.removeAllInstanses()
+      console.log "[No active machines running]"
 
 ###
 Execute command
@@ -158,7 +165,7 @@ exports.execCmd = (cmd, args, source="") ->
   if args.v or args.version
     return console.log "version: #{version}"
 
-  c = opts.config null                 # todo add path config option here
+  c = opts.config args                 # todo add path config option here
   unless cmd in ["help", "config", "c"]
     chk = c.checkOpts()
     if chk.length > 0
@@ -175,6 +182,9 @@ exports.execCmd = (cmd, args, source="") ->
       scriptContent  = c.scripts[args.script]? and c.scripts[args.script].data or null
       maxCount       = parseInt(args._[0])
       name           = args.name || null
+      unless keyName
+        return console.log "check error. missed option: awsKeypairName"
+
       if isNaN maxCount
         maxCount = 1
 
@@ -205,7 +215,8 @@ exports.execCmd = (cmd, args, source="") ->
         unless itemsList instanceof Array
           itemsList = [itemsList]
         console.log "#{itemsList.length} instance#{itemsList.length > 1 and 's' or ''} started".bold.green
-        c.addToHistory source
+        if args.addToHistory
+          c.addToHistory source
 
     when "stop"
       ec2.call "DescribeInstances", {}, (inst) ->
@@ -257,12 +268,17 @@ exports.execCmd = (cmd, args, source="") ->
         else
           ec2.call "TerminateInstances", params, (result) ->
             console.log "instances shutting down..."
-        c.addToHistory source
+        if args.addToHistory
+          c.addToHistory source
 
     when "log", "l"
-      ec2.call "DescribeInstances", {}, (instances) ->
-        printInstansesFromReservationSet instances, c
-      c.addToHistory source
+      ec2.call "DescribeInstances", {}, (err, instances) ->
+        if err
+          return console.log "error showing instances"
+        else
+          printInstansesFromReservationSet instances, c
+      if args.addToHistory
+        c.addToHistory source
 
     when "help"
       console.log USAGE
@@ -299,7 +315,8 @@ exports.execCmd = (cmd, args, source="") ->
       console.log "history cleared"
     when "add-scr", "add-script", "as"
       c.addScript args.script, args.path
-      c.addToHistory source
+      if args.addToHistory
+        c.addToHistory source
     when "list-scr", "list-scripts", "ls"
       found = no
       for k, v of c.scripts
@@ -326,7 +343,8 @@ exports.execCmd = (cmd, args, source="") ->
       else
         console.log "script not found. use\namz ls\nto find scripts."
     when "zones", "z"
-      c.addToHistory source
+      if args.addToHistory
+        c.addToHistory source
       opts = {}
       args.region ||= []
       regions  = (args.region instanceof Array) and args.region or [args.region]
@@ -347,7 +365,8 @@ exports.execCmd = (cmd, args, source="") ->
           console.log "result = #{JSON.stringify result, null, 2}"
 
     when "volumes"
-      c.addToHistory source
+      if args.addToHistory    
+        c.addToHistory source
 #      fetchTags (tags) ->
       ec2.call "DescribeVolumes", {}, (result) ->
         if result?.volumeSet?.item?
@@ -379,7 +398,8 @@ exports.execCmd = (cmd, args, source="") ->
       unless args.zone
         return console.log "error, zone argument required"
 
-      c.addToHistory source
+      if args.addToHistory
+        c.addToHistory source
       opts             = AvailabilityZone: args.zone || "us-east-1a" # or default zone
       opts.SnapshotId  = args.snapId if args.snapId
       opts.Size        = args.size || 1 unless opts.SnapshotId
@@ -441,7 +461,8 @@ exports.execCmd = (cmd, args, source="") ->
       unless args.volumeId
         return console.log "error, parameter volumeId missed"
 
-      c.addToHistory source
+      if args.addToHistory
+        c.addToHistory source
       ec2.call "CreateSnapshot", {VolumeId: args.volumeId}, (result) ->
         if result?.Errors?.Error?.Message?
           console.log "error: #{result.Errors.Error.Message}"
@@ -457,7 +478,8 @@ exports.execCmd = (cmd, args, source="") ->
       devices = args.deviceId instanceof Array and args.deviceId or [args.deviceId]
       unless volumes.length is devices.length
         return console.log "volumes and devices must be same quantity"
-      c.addToHistory source
+      if args.addToHistory
+        c.addToHistory source
       optsArray = []
       for i in [0...volumes.length]
         optsArray.push {VolumeId: volumes[i], InstanceId: args.instanceId, Device: devices[i]}
@@ -487,7 +509,8 @@ exports.execCmd = (cmd, args, source="") ->
         console.log "#{JSON.stringify result, null, 2}"
 
     when "regions", "r"
-      c.addToHistory source
+      if args.addToHistory
+        c.addToHistory source
       ec2.call "DescribeRegions", {}, (result) ->
         if result?.regionInfo?.item?
           regInfo = ("#{x.regionName.green.bold}\t\t#{x.regionEndpoint}" for x in result.regionInfo.item)
@@ -507,7 +530,8 @@ exports.execCmd = (cmd, args, source="") ->
         c.remove args._
       else
         c.dump()
-        c.addToHistory source
+        if args.addToHistory
+          c.addToHistory source
     else
       console.log USAGE
 

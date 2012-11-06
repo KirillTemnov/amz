@@ -12,9 +12,14 @@ class Opts
   ###
   Create options object
   ###
-  constructor: (@configFile) ->
-    @configFile ||= "#{process.env.HOME}/.amz"
-    @load()
+  constructor: (opts={}) ->
+    if opts.vc                  # virtual config
+      @virtualConfig = yes
+      @config = {}
+      @extendConfig opts
+    else
+      @configFile = opts.configFile or "#{process.env.HOME}/.amz"
+      @load()
 
   ###
   Set default options.
@@ -64,6 +69,13 @@ class Opts
     return null
 
   ###
+  Extend config dictionary
+  ###
+  extendConfig: (cfg={}) ->
+    @config[k] = v for k, v of cfg
+
+
+  ###
   Check nessesary options and return array of keys, that must be set.
   ###
   checkOpts: ->
@@ -72,12 +84,10 @@ class Opts
       missed.push "awsAccessKey"
     unless @config.awsSecretKey
       missed.push "awsSecretKey"
-    unless @config.awsKeypairName
-      missed.push "awsKeypairName"
-    unless @config.awsSecurityGroup
-      missed.push "awsSecurityGroup"
-    unless @config.awsInstanceType
-      missed.push "awsInstanceType"
+    # unless @config.awsSecurityGroup
+    #   missed.push "awsSecurityGroup"
+    # unless @config.awsInstanceType
+    #   missed.push "awsInstanceType"
     return missed
 
   ###
@@ -203,7 +213,8 @@ class Opts
   Save config state
   ###
   save: ->
-    fs.writeFileSync @configFile, JSON.stringify @config
+    unless @virtualConfig
+      fs.writeFileSync @configFile, JSON.stringify @config
 
   ###
   Dump all config to console

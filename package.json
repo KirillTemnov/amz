@@ -1,7 +1,7 @@
 {
  "name": "amz",
  "preferGlobal": "true",
- "version": "0.4.0",
+ "version": "0.4.3",
  "description": "Amazon EC2 cli on coffee-script",
  "keywords": ["amazon", "ec2", "cli"],
  "author": "Temnov Kirill, @selead",
@@ -13,7 +13,7 @@
   },
  "bin": { "amz": "./bin/amz.coffee" },
  "main": "index",
- "engines": { "node": ">= 0.4  <= 0.7" },
+ "engines": { "node": ">= 0.8  <= 0.9" },
  "repository": {"type": "git", "url": "https://github.com/selead/amz"},
  "license": "MIT"
 }
