@@ -1,7 +1,6 @@
 {
  "name": "amz",
- "preferGlobal": "true",
- "version": "0.4.3",
+ "version": "0.4.5",
  "description": "Amazon EC2 cli on coffee-script",
  "keywords": ["amazon", "ec2", "cli"],
  "author": "Temnov Kirill, @selead",

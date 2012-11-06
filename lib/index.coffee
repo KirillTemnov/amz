@@ -122,11 +122,14 @@ fetchTags = (fn) ->
       tags[it.resourceId][it.key] = [it.value]
     fn tags
 
-printInstansesFromReservationSet = (instances, config) ->
+getInstancesFromReservationSet = (instances) ->
   rsItems = instances.reservationSet.item || []
   unless rsItems instanceof Array
     rsItems = [rsItems]
+  rsItems
 
+printInstansesFromReservationSet = (instances, config) ->
+  rsItems = getInstancesFromReservationSet instances
   if config.get "json"
     console.log JSON.stringify rsItems, null, 2
   else
@@ -157,9 +160,24 @@ printInstansesFromReservationSet = (instances, config) ->
       config.removeAllInstanses()
       console.log "[No active machines running]"
 
+#
+# Public: Execute command inline
+#
+exports.exec = (cmd, args) ->
+  ec2 = aws.createEC2Client args.awsAccessKey, args.awsSecretKey, {version: "2011-12-01"}
+  fn = args.fn or ->
+  switch cmd
+    when "log"
+      ec2.call "DescribeInstances", {}, (instances) ->
+        fn null, getInstancesFromReservationSet instances
+
+    else
+      fn msg: "unknown command"
+
+
+
 ###
 Execute command
-
 ###
 exports.execCmd = (cmd, args, source="") ->
   if args.v or args.version
