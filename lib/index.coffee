@@ -168,8 +168,11 @@ exports.exec = (cmd, args) ->
   fn = args.fn or ->
   switch cmd
     when "log"
-      ec2.call "DescribeInstances", {}, (instances) ->
-        fn null, getInstancesFromReservationSet instances
+      ec2.call "DescribeInstances", {}, (err, instances) ->
+        if err
+          fn err
+        else
+          fn null, getInstancesFromReservationSet instances
 
     else
       fn msg: "unknown command"
